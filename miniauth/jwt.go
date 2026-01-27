@@ -47,7 +47,6 @@ func validateAccessToken(tokenString string, secret []byte) (*accessClaims, erro
 		}
 		return secret, nil
 	})
-
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrExpiredToken
