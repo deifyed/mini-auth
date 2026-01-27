@@ -9,7 +9,7 @@ const (
 	accessTokenCookie  = "access_token"
 	refreshTokenCookie = "refresh_token"
 
-	defaultAccessTTL  = 15 * time.Minute
+	defaultAccessTTL  = 3 * time.Minute
 	defaultRefreshTTL = 7 * 24 * time.Hour
 )
 
@@ -56,33 +56,37 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// authenticate attempts to authenticate the request using access token,
-// falling back to refresh token if needed.
+// authenticate attempts to authenticate the request using access token (stateless),
+// falling back to refresh token (DB lookup) if needed.
 func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) (User, error) {
-	// Try access token first
+	// Try access token first (stateless JWT validation)
 	if cookie, err := r.Cookie(accessTokenCookie); err == nil {
-		claims, err := validateToken(cookie.Value, accessToken, m.Secret)
+		claims, err := validateAccessToken(cookie.Value, m.Secret)
 		if err == nil {
 			return User{ID: claims.UserID, Username: claims.Username}, nil
 		}
 	}
 
-	// Try refresh token
+	// Try refresh token (DB lookup)
 	refreshCookie, err := r.Cookie(refreshTokenCookie)
 	if err != nil {
 		return User{}, ErrInvalidToken
 	}
 
-	claims, err := validateToken(refreshCookie.Value, refreshToken, m.Secret)
+	// Validate refresh token against DB
+	userID, err := m.Datastore.ValidateRefreshToken(refreshCookie.Value)
 	if err != nil {
 		return User{}, err
 	}
 
-	// Refresh token valid - get fresh user data and issue new tokens
-	user, err := m.Datastore.GetUserByID(claims.UserID)
+	// Get user data
+	user, err := m.Datastore.GetUserByID(userID)
 	if err != nil {
 		return User{}, err
 	}
+
+	// Rotate refresh token: delete old, create new
+	m.Datastore.DeleteRefreshToken(refreshCookie.Value)
 
 	if err := m.setTokenCookies(w, user); err != nil {
 		return User{}, err
@@ -92,14 +96,21 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) (User,
 }
 
 // setTokenCookies generates and sets both access and refresh token cookies.
+// The refresh token is stored in the database.
 func (m *Middleware) setTokenCookies(w http.ResponseWriter, user User) error {
-	access, err := generateToken(user, accessToken, m.accessTTL(), m.Secret)
+	access, err := generateAccessToken(user, m.accessTTL(), m.Secret)
 	if err != nil {
 		return err
 	}
 
-	refresh, err := generateToken(user, refreshToken, m.refreshTTL(), m.Secret)
+	refresh, err := generateRefreshToken()
 	if err != nil {
+		return err
+	}
+
+	// Store refresh token in DB
+	expiresAt := time.Now().Add(m.refreshTTL())
+	if err := m.Datastore.StoreRefreshToken(refresh, user.ID, expiresAt); err != nil {
 		return err
 	}
 

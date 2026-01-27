@@ -3,6 +3,7 @@ package simpleauth
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
@@ -37,6 +38,19 @@ func (s *Sqlite3) createTables() error {
 			username TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)
 	`)
 	return err
@@ -114,4 +128,59 @@ func (s *Sqlite3) CreateUser(username, password string) (User, error) {
 	}
 
 	return User{ID: id, Username: username}, nil
+}
+
+// StoreRefreshToken stores a refresh token for a user.
+func (s *Sqlite3) StoreRefreshToken(token string, userID int64, expiresAt time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES (?, ?, ?)",
+		token, userID, expiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("storing refresh token: %w", err)
+	}
+	return nil
+}
+
+// ValidateRefreshToken checks if a refresh token is valid and returns the user ID.
+func (s *Sqlite3) ValidateRefreshToken(token string) (int64, error) {
+	var userID int64
+	var expiresAt time.Time
+
+	err := s.db.QueryRow(
+		"SELECT user_id, expires_at FROM refresh_tokens WHERE token = ?",
+		token,
+	).Scan(&userID, &expiresAt)
+
+	if err == sql.ErrNoRows {
+		return 0, ErrTokenNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("querying refresh token: %w", err)
+	}
+
+	if time.Now().After(expiresAt) {
+		s.DeleteRefreshToken(token)
+		return 0, ErrTokenNotFound
+	}
+
+	return userID, nil
+}
+
+// DeleteRefreshToken removes a specific refresh token.
+func (s *Sqlite3) DeleteRefreshToken(token string) error {
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token = ?", token)
+	if err != nil {
+		return fmt.Errorf("deleting refresh token: %w", err)
+	}
+	return nil
+}
+
+// DeleteUserRefreshTokens removes all refresh tokens for a user.
+func (s *Sqlite3) DeleteUserRefreshTokens(userID int64) error {
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("deleting user refresh tokens: %w", err)
+	}
+	return nil
 }

@@ -1,13 +1,12 @@
 package simpleauth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -15,110 +14,60 @@ var (
 	ErrExpiredToken = errors.New("token expired")
 )
 
-type tokenType string
+const refreshTokenBytes = 32
 
-const (
-	accessToken  tokenType = "access"
-	refreshToken tokenType = "refresh"
-)
-
-// jwtHeader is the standard JWT header for HS256.
-type jwtHeader struct {
-	Alg string `json:"alg"`
-	Typ string `json:"typ"`
+// accessClaims contains the JWT payload for access tokens.
+type accessClaims struct {
+	UserID   int64  `json:"uid"`
+	Username string `json:"username"`
+	jwt.RegisteredClaims
 }
 
-// jwtClaims contains the JWT payload.
-type jwtClaims struct {
-	UserID    int64     `json:"sub"`
-	Username  string    `json:"username"`
-	TokenType tokenType `json:"type"`
-	IssuedAt  int64     `json:"iat"`
-	ExpiresAt int64     `json:"exp"`
-}
-
-func (c *jwtClaims) isExpired() bool {
-	return time.Now().Unix() > c.ExpiresAt
-}
-
-// generateToken creates a JWT for the given user.
-func generateToken(user User, tokenType tokenType, ttl time.Duration, secret []byte) (string, error) {
-	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
-	claims := jwtClaims{
-		UserID:    user.ID,
-		Username:  user.Username,
-		TokenType: tokenType,
-		IssuedAt:  time.Now().Unix(),
-		ExpiresAt: time.Now().Add(ttl).Unix(),
+// generateAccessToken creates a JWT access token for the given user.
+func generateAccessToken(user User, ttl time.Duration, secret []byte) (string, error) {
+	now := time.Now()
+	claims := accessClaims{
+		UserID:   user.ID,
+		Username: user.Username,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
 	}
 
-	headerJSON, err := json.Marshal(header)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secret)
+}
+
+// validateAccessToken parses and validates a JWT access token, returning the claims if valid.
+func validateAccessToken(tokenString string, secret []byte) (*accessClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &accessClaims{}, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, ErrInvalidToken
+		}
+		return secret, nil
+	})
+
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrExpiredToken
+		}
+		return nil, ErrInvalidToken
+	}
+
+	claims, ok := token.Claims.(*accessClaims)
+	if !ok || !token.Valid {
+		return nil, ErrInvalidToken
+	}
+
+	return claims, nil
+}
+
+// generateRefreshToken creates a cryptographically secure random refresh token.
+func generateRefreshToken() (string, error) {
+	b := make([]byte, refreshTokenBytes)
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-
-	claimsJSON, err := json.Marshal(claims)
-	if err != nil {
-		return "", err
-	}
-
-	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
-	claimsB64 := base64.RawURLEncoding.EncodeToString(claimsJSON)
-
-	signingInput := headerB64 + "." + claimsB64
-	signature := signHS256([]byte(signingInput), secret)
-	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
-
-	return signingInput + "." + signatureB64, nil
-}
-
-// validateToken parses and validates a JWT, returning the claims if valid.
-func validateToken(tokenString string, expectedType tokenType, secret []byte) (*jwtClaims, error) {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return nil, ErrInvalidToken
-	}
-
-	headerB64, claimsB64, signatureB64 := parts[0], parts[1], parts[2]
-
-	// Verify signature
-	signingInput := headerB64 + "." + claimsB64
-	expectedSig := signHS256([]byte(signingInput), secret)
-	actualSig, err := base64.RawURLEncoding.DecodeString(signatureB64)
-	if err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	if !hmac.Equal(expectedSig, actualSig) {
-		return nil, ErrInvalidToken
-	}
-
-	// Decode claims
-	claimsJSON, err := base64.RawURLEncoding.DecodeString(claimsB64)
-	if err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	var claims jwtClaims
-	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	// Validate token type
-	if claims.TokenType != expectedType {
-		return nil, ErrInvalidToken
-	}
-
-	// Check expiration
-	if claims.isExpired() {
-		return nil, ErrExpiredToken
-	}
-
-	return &claims, nil
-}
-
-func signHS256(data, secret []byte) []byte {
-	h := hmac.New(sha256.New, secret)
-	h.Write(data)
-	return h.Sum(nil)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

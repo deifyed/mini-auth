@@ -45,12 +45,17 @@ func Login(m *Middleware) http.HandlerFunc {
 	}
 }
 
-// Logout returns a handler that clears the authentication cookies.
+// Logout returns a handler that clears the authentication cookies and invalidates the refresh token.
 func Logout(m *Middleware) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
+		}
+
+		// Delete refresh token from DB if present
+		if cookie, err := r.Cookie(refreshTokenCookie); err == nil {
+			m.Datastore.DeleteRefreshToken(cookie.Value)
 		}
 
 		m.clearTokenCookies(w)
