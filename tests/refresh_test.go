@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deifyed/mini-auth/simpleauth"
+	"github.com/deifyed/mini-auth/miniauth"
 )
 
 func TestRefresh(t *testing.T) {
@@ -218,7 +218,7 @@ func newShortTTLTestSetup(t *testing.T, accessTTL time.Duration) *testSetup {
 
 	// Create temp DB
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db := &simpleauth.Sqlite3{Path: dbPath}
+	db := &miniauth.Sqlite3{Path: dbPath}
 	if err := db.Init(); err != nil {
 		t.Fatalf("failed to init db: %v", err)
 	}
@@ -230,7 +230,7 @@ func newShortTTLTestSetup(t *testing.T, accessTTL time.Duration) *testSetup {
 	}
 
 	// Create middleware with short access TTL
-	middleware := &simpleauth.Middleware{
+	middleware := &miniauth.Middleware{
 		Datastore: db,
 		Secret:    []byte(testSecret),
 		AccessTTL: accessTTL,
@@ -239,8 +239,8 @@ func newShortTTLTestSetup(t *testing.T, accessTTL time.Duration) *testSetup {
 
 	// Create mux with routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /login", simpleauth.Login(middleware))
-	mux.HandleFunc("POST /logout", simpleauth.Logout(middleware))
+	mux.HandleFunc("POST /login", miniauth.Login(middleware))
+	mux.HandleFunc("POST /logout", miniauth.Logout(middleware))
 	mux.Handle("GET /protected", middleware.Wrap(http.HandlerFunc(protectedHandler)))
 
 	server := httptest.NewServer(mux)

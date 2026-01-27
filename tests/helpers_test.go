@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deifyed/mini-auth/simpleauth"
+	"github.com/deifyed/mini-auth/miniauth"
 )
 
 const (
@@ -21,8 +21,8 @@ const (
 // testSetup contains the test server and middleware for testing.
 type testSetup struct {
 	Server     *httptest.Server
-	Middleware *simpleauth.Middleware
-	DB         *simpleauth.Sqlite3
+	Middleware *miniauth.Middleware
+	DB         *miniauth.Sqlite3
 	dbPath     string
 }
 
@@ -39,7 +39,7 @@ func newTestSetup(t *testing.T) *testSetup {
 
 	// Create temp DB
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db := &simpleauth.Sqlite3{Path: dbPath}
+	db := &miniauth.Sqlite3{Path: dbPath}
 	if err := db.Init(); err != nil {
 		t.Fatalf("failed to init db: %v", err)
 	}
@@ -51,7 +51,7 @@ func newTestSetup(t *testing.T) *testSetup {
 	}
 
 	// Create middleware
-	middleware := &simpleauth.Middleware{
+	middleware := &miniauth.Middleware{
 		Datastore: db,
 		Secret:    []byte(testSecret),
 		Insecure:  true, // Allow non-HTTPS for testing
@@ -59,8 +59,8 @@ func newTestSetup(t *testing.T) *testSetup {
 
 	// Create mux with routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /login", simpleauth.Login(middleware))
-	mux.HandleFunc("POST /logout", simpleauth.Logout(middleware))
+	mux.HandleFunc("POST /login", miniauth.Login(middleware))
+	mux.HandleFunc("POST /logout", miniauth.Logout(middleware))
 	mux.Handle("GET /protected", middleware.Wrap(http.HandlerFunc(protectedHandler)))
 
 	server := httptest.NewServer(mux)
@@ -74,7 +74,7 @@ func newTestSetup(t *testing.T) *testSetup {
 }
 
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
-	user, ok := simpleauth.UserFromContext(r.Context())
+	user, ok := miniauth.UserFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no user in context", http.StatusInternalServerError)
 		return

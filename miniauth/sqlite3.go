@@ -1,4 +1,4 @@
-package simpleauth
+package miniauth
 
 import (
 	"crypto/sha256"
