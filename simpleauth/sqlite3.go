@@ -51,7 +51,7 @@ func (s *Sqlite3) Close() error {
 }
 
 // Authenticate validates username and password.
-func (s *Sqlite3) Authenticate(username, password string) (*User, error) {
+func (s *Sqlite3) Authenticate(username, password string) (User, error) {
 	var user User
 	var passwordHash string
 
@@ -61,21 +61,21 @@ func (s *Sqlite3) Authenticate(username, password string) (*User, error) {
 	).Scan(&user.ID, &user.Username, &passwordHash)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrUserNotFound
+		return User{}, ErrUserNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("querying user: %w", err)
+		return User{}, fmt.Errorf("querying user: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
-		return nil, ErrInvalidCredentials
+		return User{}, ErrInvalidCredentials
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 // GetUserByID retrieves a user by ID.
-func (s *Sqlite3) GetUserByID(id int64) (*User, error) {
+func (s *Sqlite3) GetUserByID(id int64) (User, error) {
 	var user User
 
 	err := s.db.QueryRow(
@@ -84,20 +84,20 @@ func (s *Sqlite3) GetUserByID(id int64) (*User, error) {
 	).Scan(&user.ID, &user.Username)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrUserNotFound
+		return User{}, ErrUserNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("querying user: %w", err)
+		return User{}, fmt.Errorf("querying user: %w", err)
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 // CreateUser creates a new user with a hashed password.
-func (s *Sqlite3) CreateUser(username, password string) (*User, error) {
+func (s *Sqlite3) CreateUser(username, password string) (User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("hashing password: %w", err)
+		return User{}, fmt.Errorf("hashing password: %w", err)
 	}
 
 	result, err := s.db.Exec(
@@ -105,13 +105,13 @@ func (s *Sqlite3) CreateUser(username, password string) (*User, error) {
 		username, string(hash),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("inserting user: %w", err)
+		return User{}, fmt.Errorf("inserting user: %w", err)
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return nil, fmt.Errorf("getting last insert id: %w", err)
+		return User{}, fmt.Errorf("getting last insert id: %w", err)
 	}
 
-	return &User{ID: id, Username: username}, nil
+	return User{ID: id, Username: username}, nil
 }

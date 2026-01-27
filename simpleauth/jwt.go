@@ -42,7 +42,7 @@ func (c *jwtClaims) isExpired() bool {
 }
 
 // generateToken creates a JWT for the given user.
-func generateToken(user *User, tokenType tokenType, ttl time.Duration, secret []byte) (string, error) {
+func generateToken(user User, tokenType tokenType, ttl time.Duration, secret []byte) (string, error) {
 	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
 	claims := jwtClaims{
 		UserID:    user.ID,

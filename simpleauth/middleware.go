@@ -19,7 +19,7 @@ type Middleware struct {
 	Secret     []byte
 	AccessTTL  time.Duration // Default: 15 minutes
 	RefreshTTL time.Duration // Default: 7 days
-	Secure     bool          // Set Secure flag on cookies (use true in production)
+	Insecure   bool          // Disable Secure flag on cookies (default: false = secure)
 }
 
 func (m *Middleware) accessTTL() time.Duration {
@@ -36,10 +36,14 @@ func (m *Middleware) refreshTTL() time.Duration {
 	return m.RefreshTTL
 }
 
-// Protect wraps a handler to require authentication.
+func (m *Middleware) secureCookie() bool {
+	return !m.Insecure
+}
+
+// Wrap wraps a handler to require authentication.
 // Unauthenticated requests receive a 401 response.
 // If access token is expired but refresh token is valid, new tokens are issued automatically.
-func (m *Middleware) Protect(next http.Handler) http.Handler {
+func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, err := m.authenticate(w, r)
 		if err != nil {
@@ -54,41 +58,41 @@ func (m *Middleware) Protect(next http.Handler) http.Handler {
 
 // authenticate attempts to authenticate the request using access token,
 // falling back to refresh token if needed.
-func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) (*User, error) {
+func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) (User, error) {
 	// Try access token first
 	if cookie, err := r.Cookie(accessTokenCookie); err == nil {
 		claims, err := validateToken(cookie.Value, accessToken, m.Secret)
 		if err == nil {
-			return &User{ID: claims.UserID, Username: claims.Username}, nil
+			return User{ID: claims.UserID, Username: claims.Username}, nil
 		}
 	}
 
 	// Try refresh token
 	refreshCookie, err := r.Cookie(refreshTokenCookie)
 	if err != nil {
-		return nil, ErrInvalidToken
+		return User{}, ErrInvalidToken
 	}
 
 	claims, err := validateToken(refreshCookie.Value, refreshToken, m.Secret)
 	if err != nil {
-		return nil, err
+		return User{}, err
 	}
 
 	// Refresh token valid - get fresh user data and issue new tokens
 	user, err := m.Datastore.GetUserByID(claims.UserID)
 	if err != nil {
-		return nil, err
+		return User{}, err
 	}
 
 	if err := m.setTokenCookies(w, user); err != nil {
-		return nil, err
+		return User{}, err
 	}
 
 	return user, nil
 }
 
 // setTokenCookies generates and sets both access and refresh token cookies.
-func (m *Middleware) setTokenCookies(w http.ResponseWriter, user *User) error {
+func (m *Middleware) setTokenCookies(w http.ResponseWriter, user User) error {
 	access, err := generateToken(user, accessToken, m.accessTTL(), m.Secret)
 	if err != nil {
 		return err
@@ -104,7 +108,7 @@ func (m *Middleware) setTokenCookies(w http.ResponseWriter, user *User) error {
 		Value:    access,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.Secure,
+		Secure:   m.secureCookie(),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(m.accessTTL().Seconds()),
 	})
@@ -114,7 +118,7 @@ func (m *Middleware) setTokenCookies(w http.ResponseWriter, user *User) error {
 		Value:    refresh,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.Secure,
+		Secure:   m.secureCookie(),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(m.refreshTTL().Seconds()),
 	})
@@ -129,7 +133,7 @@ func (m *Middleware) clearTokenCookies(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.Secure,
+		Secure:   m.secureCookie(),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
@@ -139,7 +143,7 @@ func (m *Middleware) clearTokenCookies(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.Secure,
+		Secure:   m.secureCookie(),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})

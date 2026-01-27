@@ -16,8 +16,8 @@ type User struct {
 // Datastore defines the interface for user authentication storage.
 type Datastore interface {
 	// Authenticate validates username and password, returning the user if valid.
-	Authenticate(username, password string) (*User, error)
+	Authenticate(username, password string) (User, error)
 
 	// GetUserByID retrieves a user by their ID.
-	GetUserByID(id int64) (*User, error)
+	GetUserByID(id int64) (User, error)
 }
