@@ -17,7 +17,7 @@ const (
 type Middleware struct {
 	Datastore  Datastore
 	Secret     []byte
-	AccessTTL  time.Duration // Default: 15 minutes
+	AccessTTL  time.Duration // Default: 3 minutes
 	RefreshTTL time.Duration // Default: 7 days
 	Insecure   bool          // Disable Secure flag on cookies (default: false = secure)
 }

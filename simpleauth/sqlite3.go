@@ -1,13 +1,30 @@
 package simpleauth
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
+
+// hashToken hashes a refresh token for secure storage.
+// We store the hash, not the plaintext, so DB compromise doesn't leak usable tokens.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+// preparePassword hashes a password with SHA256 before bcrypt.
+// This ensures consistent handling regardless of password length,
+// avoiding bcrypt's 72-byte truncation issue.
+func preparePassword(password string) []byte {
+	h := sha256.Sum256([]byte(password))
+	return h[:]
+}
 
 // Sqlite3 implements the Datastore interface using SQLite3.
 type Sqlite3 struct {
@@ -64,6 +81,10 @@ func (s *Sqlite3) Close() error {
 	return nil
 }
 
+// dummyHash is used to prevent timing attacks when user doesn't exist.
+// bcrypt hash of empty string, cost 10.
+var dummyHash = []byte("$2a$10$dummyhashtopreventtimingattacksaliensaliensali")
+
 // Authenticate validates username and password.
 func (s *Sqlite3) Authenticate(username, password string) (User, error) {
 	var user User
@@ -74,14 +95,18 @@ func (s *Sqlite3) Authenticate(username, password string) (User, error) {
 		username,
 	).Scan(&user.ID, &user.Username, &passwordHash)
 
+	preparedPassword := preparePassword(password)
+
 	if err == sql.ErrNoRows {
-		return User{}, ErrUserNotFound
+		// Always run bcrypt to prevent timing attacks
+		bcrypt.CompareHashAndPassword(dummyHash, preparedPassword)
+		return User{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("querying user: %w", err)
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), preparedPassword); err != nil {
 		return User{}, ErrInvalidCredentials
 	}
 
@@ -109,7 +134,7 @@ func (s *Sqlite3) GetUserByID(id int64) (User, error) {
 
 // CreateUser creates a new user with a hashed password.
 func (s *Sqlite3) CreateUser(username, password string) (User, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword(preparePassword(password), bcrypt.DefaultCost)
 	if err != nil {
 		return User{}, fmt.Errorf("hashing password: %w", err)
 	}
@@ -131,10 +156,11 @@ func (s *Sqlite3) CreateUser(username, password string) (User, error) {
 }
 
 // StoreRefreshToken stores a refresh token for a user.
+// The token is hashed before storage for security.
 func (s *Sqlite3) StoreRefreshToken(token string, userID int64, expiresAt time.Time) error {
 	_, err := s.db.Exec(
 		"INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES (?, ?, ?)",
-		token, userID, expiresAt,
+		hashToken(token), userID, expiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("storing refresh token: %w", err)
@@ -143,13 +169,15 @@ func (s *Sqlite3) StoreRefreshToken(token string, userID int64, expiresAt time.T
 }
 
 // ValidateRefreshToken checks if a refresh token is valid and returns the user ID.
+// The token is hashed before lookup.
 func (s *Sqlite3) ValidateRefreshToken(token string) (int64, error) {
 	var userID int64
 	var expiresAt time.Time
 
+	hashedToken := hashToken(token)
 	err := s.db.QueryRow(
 		"SELECT user_id, expires_at FROM refresh_tokens WHERE token = ?",
-		token,
+		hashedToken,
 	).Scan(&userID, &expiresAt)
 
 	if err == sql.ErrNoRows {
@@ -160,7 +188,7 @@ func (s *Sqlite3) ValidateRefreshToken(token string) (int64, error) {
 	}
 
 	if time.Now().After(expiresAt) {
-		s.DeleteRefreshToken(token)
+		s.deleteRefreshTokenByHash(hashedToken)
 		return 0, ErrTokenNotFound
 	}
 
@@ -168,8 +196,13 @@ func (s *Sqlite3) ValidateRefreshToken(token string) (int64, error) {
 }
 
 // DeleteRefreshToken removes a specific refresh token.
+// The token is hashed before deletion.
 func (s *Sqlite3) DeleteRefreshToken(token string) error {
-	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token = ?", token)
+	return s.deleteRefreshTokenByHash(hashToken(token))
+}
+
+func (s *Sqlite3) deleteRefreshTokenByHash(hashedToken string) error {
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token = ?", hashedToken)
 	if err != nil {
 		return fmt.Errorf("deleting refresh token: %w", err)
 	}
