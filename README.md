@@ -27,6 +27,7 @@ func main() {
 
     // Setup routes
     mux := http.NewServeMux()
+    mux.HandleFunc("POST /register", miniauth.Register(auth))
     mux.HandleFunc("POST /login", miniauth.Login(auth))
     mux.HandleFunc("POST /logout", miniauth.Logout(auth))
     mux.Handle("GET /protected", auth.Wrap(http.HandlerFunc(protectedHandler)))
@@ -38,6 +39,16 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
     user, _ := miniauth.UserFromContext(r.Context())
     fmt.Fprintf(w, "Hello, %s!", user.Username)
 }
+```
+
+Register with POST request:
+```bash
+curl -X POST http://localhost:8080/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"secret"}' \
+  -c cookies.txt
+
+curl http://localhost:8080/protected -b cookies.txt
 ```
 
 Login with POST request:

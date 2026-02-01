@@ -45,6 +45,41 @@ func Login(m *Middleware) http.HandlerFunc {
 	}
 }
 
+// Register returns a handler that creates a new user account.
+// On success, sets access_token and refresh_token cookies (user is logged in).
+func Register(m *Middleware) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req loginRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Username == "" || req.Password == "" {
+			http.Error(w, "Username and password required", http.StatusBadRequest)
+			return
+		}
+
+		user, err := m.Datastore.CreateUser(req.Username, req.Password)
+		if err != nil {
+			http.Error(w, "Username already exists", http.StatusConflict)
+			return
+		}
+
+		if err := m.setTokenCookies(w, user); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
 // Logout returns a handler that clears the authentication cookies and invalidates the refresh token.
 func Logout(m *Middleware) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,9 @@ type User struct {
 
 // Datastore defines the interface for user authentication storage.
 type Datastore interface {
+	// CreateUser creates a new user with the given username and password.
+	CreateUser(username, password string) (User, error)
+
 	// Authenticate validates username and password, returning the user if valid.
 	Authenticate(username, password string) (User, error)
 
