@@ -45,9 +45,11 @@ func Login(m *Middleware) http.HandlerFunc {
 	}
 }
 
+type userCreateListener func(id int64, username string) error
+
 // Register returns a handler that creates a new user account.
 // On success, sets access_token and refresh_token cookies (user is logged in).
-func Register(m *Middleware) http.HandlerFunc {
+func Register(m *Middleware, onUserCreate userCreateListener) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -68,6 +70,12 @@ func Register(m *Middleware) http.HandlerFunc {
 		user, err := m.Datastore.CreateUser(req.Username, req.Password)
 		if err != nil {
 			http.Error(w, "Username already exists", http.StatusConflict)
+			return
+		}
+
+		err = onUserCreate(user.ID, user.Username)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
