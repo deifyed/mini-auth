@@ -1,6 +1,7 @@
 package miniauth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 )
@@ -45,7 +46,7 @@ func Login(m *Middleware) http.HandlerFunc {
 	}
 }
 
-type userCreateListener func(id int64, username string) error
+type userCreateListener func(ctx context.Context, authenticationID int64, username string) error
 
 // Register returns a handler that creates a new user account.
 // On success, sets access_token and refresh_token cookies (user is logged in).
@@ -73,7 +74,7 @@ func Register(m *Middleware, onUserCreate userCreateListener) http.HandlerFunc {
 			return
 		}
 
-		err = onUserCreate(user.ID, user.Username)
+		err = onUserCreate(r.Context(), user.ID, user.Username)
 		if err != nil {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
