@@ -85,14 +85,34 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) (User,
 		return User{}, err
 	}
 
-	// Rotate refresh token: delete old, create new
-	m.Datastore.DeleteRefreshToken(refreshCookie.Value)
-
-	if err := m.setTokenCookies(w, user); err != nil {
+	// Issue a new access token (no refresh token rotation to avoid race conditions
+	// with concurrent requests)
+	if err := m.setAccessTokenCookie(w, user); err != nil {
 		return User{}, err
 	}
 
 	return user, nil
+}
+
+// setAccessTokenCookie generates and sets only the access token cookie.
+// Used during transparent refresh to avoid refresh token rotation.
+func (m *Middleware) setAccessTokenCookie(w http.ResponseWriter, user User) error {
+	access, err := generateAccessToken(user, m.accessTTL(), m.Secret)
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     accessTokenCookie,
+		Value:    access,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   m.secureCookie(),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(m.accessTTL().Seconds()),
+	})
+
+	return nil
 }
 
 // setTokenCookies generates and sets both access and refresh token cookies.

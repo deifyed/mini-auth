@@ -3,7 +3,6 @@ package tests
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -76,20 +75,16 @@ func TestRefresh(t *testing.T) {
 			if tc.expectNewTokens {
 				newCookies := getCookies(resp)
 				newAccessCookie := findCookie(newCookies, "access_token")
-				newRefreshCookie := findCookie(newCookies, "refresh_token")
 
 				if newAccessCookie == nil {
 					t.Error("expected new access_token cookie")
-				}
-				if newRefreshCookie == nil {
-					t.Error("expected new refresh_token cookie")
 				}
 			}
 		})
 	}
 }
 
-func TestRefreshTokenRotation(t *testing.T) {
+func TestRefreshTokenRemainsValid(t *testing.T) {
 	t.Parallel()
 
 	// Create setup with very short access token TTL
@@ -103,112 +98,31 @@ func TestRefreshTokenRotation(t *testing.T) {
 	cookies := getCookies(loginResp)
 	loginResp.Body.Close()
 
-	originalRefresh := findCookie(cookies, "refresh_token")
-	if originalRefresh == nil {
+	refreshCookie := findCookie(cookies, "refresh_token")
+	if refreshCookie == nil {
 		t.Fatal("expected refresh_token cookie")
 	}
 
 	// Wait for access token to expire
 	time.Sleep(10 * time.Millisecond)
 
-	// Use refresh token to get new tokens
-	req1, _ := http.NewRequest(http.MethodGet, setup.Server.URL+"/protected", nil)
-	req1.AddCookie(originalRefresh)
+	// The same refresh token should work across multiple refreshes
+	for i := range 3 {
+		req, _ := http.NewRequest(http.MethodGet, setup.Server.URL+"/protected", nil)
+		req.AddCookie(refreshCookie)
 
-	resp1, err := client.Do(req1)
-	if err != nil {
-		t.Fatalf("failed to do first request: %v", err)
-	}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request %d: failed to do request: %v", i, err)
+		}
+		resp.Body.Close()
 
-	if resp1.StatusCode != http.StatusOK {
-		t.Fatalf("expected first refresh to succeed, got %d", resp1.StatusCode)
-	}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, resp.StatusCode)
+		}
 
-	newCookies := getCookies(resp1)
-	resp1.Body.Close()
-
-	newRefresh := findCookie(newCookies, "refresh_token")
-	if newRefresh == nil {
-		t.Fatal("expected new refresh_token cookie")
-	}
-
-	// Verify tokens rotated (new token is different)
-	if newRefresh.Value == originalRefresh.Value {
-		t.Error("refresh token should have rotated to a new value")
-	}
-
-	// Wait for new access token to expire
-	time.Sleep(10 * time.Millisecond)
-
-	// Try to use the OLD refresh token again - should fail
-	req2, _ := http.NewRequest(http.MethodGet, setup.Server.URL+"/protected", nil)
-	req2.AddCookie(originalRefresh) // Use old token
-
-	resp2, err := client.Do(req2)
-	if err != nil {
-		t.Fatalf("failed to do second request: %v", err)
-	}
-	defer resp2.Body.Close()
-
-	if resp2.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected old refresh token to be invalid (401), got %d", resp2.StatusCode)
-	}
-}
-
-func TestRefreshTokenRotationNewTokenWorks(t *testing.T) {
-	t.Parallel()
-
-	// Create setup with very short access token TTL
-	setup := newShortTTLTestSetup(t, 1*time.Millisecond)
-	defer setup.Close()
-
-	client := &http.Client{}
-
-	// Login to get initial tokens
-	loginResp := doLogin(t, setup.Server.URL, testUsername, testPassword)
-	cookies := getCookies(loginResp)
-	loginResp.Body.Close()
-
-	originalRefresh := findCookie(cookies, "refresh_token")
-	if originalRefresh == nil {
-		t.Fatal("expected refresh_token cookie")
-	}
-
-	// Wait for access token to expire
-	time.Sleep(10 * time.Millisecond)
-
-	// Use refresh token to get new tokens
-	req1, _ := http.NewRequest(http.MethodGet, setup.Server.URL+"/protected", nil)
-	req1.AddCookie(originalRefresh)
-
-	resp1, err := client.Do(req1)
-	if err != nil {
-		t.Fatalf("failed to do first request: %v", err)
-	}
-
-	newCookies := getCookies(resp1)
-	resp1.Body.Close()
-
-	newRefresh := findCookie(newCookies, "refresh_token")
-	if newRefresh == nil {
-		t.Fatal("expected new refresh_token cookie")
-	}
-
-	// Wait for new access token to expire
-	time.Sleep(10 * time.Millisecond)
-
-	// Use NEW refresh token - should work
-	req2, _ := http.NewRequest(http.MethodGet, setup.Server.URL+"/protected", nil)
-	req2.AddCookie(newRefresh) // Use new token
-
-	resp2, err := client.Do(req2)
-	if err != nil {
-		t.Fatalf("failed to do second request: %v", err)
-	}
-	defer resp2.Body.Close()
-
-	if resp2.StatusCode != http.StatusOK {
-		t.Errorf("expected new refresh token to work (200), got %d", resp2.StatusCode)
+		// Wait for the new access token to expire before next iteration
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -252,6 +166,3 @@ func newShortTTLTestSetup(t *testing.T, accessTTL time.Duration) *testSetup {
 		dbPath:     dbPath,
 	}
 }
-
-// Ensure unused import doesn't fail
-var _ = os.Remove
