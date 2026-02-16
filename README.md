@@ -77,11 +77,7 @@ Access tokens are short-lived JWTs (3 min default) validated statelessly. Refres
 
 **Automatic token refresh**
 
-When an access token expires, the middleware automatically validates the refresh token and issues new tokens. Clients don't need refresh logic.
-
-**Refresh token rotation**
-
-Each time a refresh token is used, it's deleted and replaced with a new one. A stolen token becomes useless after one use.
+When an access token expires, the middleware automatically validates the refresh token and issues a new token. Clients don't need refresh logic.
 
 **Secure cookies by default**
 
