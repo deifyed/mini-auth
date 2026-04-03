@@ -2,6 +2,7 @@ package miniauth
 
 import (
 	"net/http"
+	"regexp"
 	"time"
 )
 
@@ -13,13 +14,18 @@ const (
 	defaultRefreshTTL = 7 * 24 * time.Hour
 )
 
+// defaultPasswordRegex requires at least 8 characters, one uppercase letter,
+// one lowercase letter, and one digit.
+var defaultPasswordRegex = regexp.MustCompile(`^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$`)
+
 // Middleware provides authentication for HTTP handlers.
 type Middleware struct {
-	Datastore  Datastore
-	Secret     []byte
-	AccessTTL  time.Duration // Default: 3 minutes
-	RefreshTTL time.Duration // Default: 7 days
-	Insecure   bool          // Disable Secure flag on cookies (default: false = secure)
+	Datastore     Datastore
+	Secret        []byte
+	AccessTTL     time.Duration // Default: 3 minutes
+	RefreshTTL    time.Duration // Default: 7 days
+	PasswordRegex *regexp.Regexp // Default: min 8 chars, 1 uppercase, 1 lowercase, 1 digit
+	Insecure      bool // Disable Secure flag on cookies (default: false = secure)
 }
 
 func (m *Middleware) accessTTL() time.Duration {
@@ -38,6 +44,17 @@ func (m *Middleware) refreshTTL() time.Duration {
 
 func (m *Middleware) secureCookie() bool {
 	return !m.Insecure
+}
+
+func (m *Middleware) passwordRegex() *regexp.Regexp {
+	if m.PasswordRegex != nil {
+		return m.PasswordRegex
+	}
+	return defaultPasswordRegex
+}
+
+func (m *Middleware) validatePassword(password string) bool {
+	return m.passwordRegex().MatchString(password)
 }
 
 // Wrap wraps a handler to require authentication.

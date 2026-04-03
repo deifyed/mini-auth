@@ -68,6 +68,11 @@ func Register(m *Middleware, onUserCreate userCreateListener) http.HandlerFunc {
 			return
 		}
 
+		if !m.validatePassword(req.Password) {
+			http.Error(w, "Password does not meet requirements", http.StatusBadRequest)
+			return
+		}
+
 		user, err := m.Datastore.CreateUser(req.Username, req.Password)
 		if err != nil {
 			http.Error(w, "Username already exists", http.StatusConflict)
@@ -135,6 +140,11 @@ func UpdatePassword(m *Middleware) http.HandlerFunc {
 
 		if req.OldPassword == "" || req.NewPassword == "" {
 			http.Error(w, "Old password and new password required", http.StatusBadRequest)
+			return
+		}
+
+		if !m.validatePassword(req.NewPassword) {
+			http.Error(w, "Password does not meet requirements", http.StatusBadRequest)
 			return
 		}
 
