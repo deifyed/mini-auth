@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type loginRequest struct {
@@ -68,8 +69,8 @@ func Register(m *Middleware, onUserCreate userCreateListener) http.HandlerFunc {
 			return
 		}
 
-		if !m.validatePassword(req.Password) {
-			http.Error(w, "Password does not meet requirements", http.StatusBadRequest)
+		if violations := m.validatePassword(req.Password); len(violations) > 0 {
+			http.Error(w, "Password requires: "+strings.Join(violations, ", "), http.StatusBadRequest)
 			return
 		}
 
@@ -143,8 +144,8 @@ func UpdatePassword(m *Middleware) http.HandlerFunc {
 			return
 		}
 
-		if !m.validatePassword(req.NewPassword) {
-			http.Error(w, "Password does not meet requirements", http.StatusBadRequest)
+		if violations := m.validatePassword(req.NewPassword); len(violations) > 0 {
+			http.Error(w, "Password requires: "+strings.Join(violations, ", "), http.StatusBadRequest)
 			return
 		}
 

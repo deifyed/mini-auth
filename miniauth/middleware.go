@@ -2,8 +2,9 @@ package miniauth
 
 import (
 	"net/http"
-	"regexp"
 	"time"
+
+	rules "github.com/deifyed/mini-auth/miniauth/passwordrules"
 )
 
 const (
@@ -14,18 +15,14 @@ const (
 	defaultRefreshTTL = 7 * 24 * time.Hour
 )
 
-// defaultPasswordRegex requires at least 8 characters, one uppercase letter,
-// one lowercase letter, and one digit.
-var defaultPasswordRegex = regexp.MustCompile(`^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$`)
-
 // Middleware provides authentication for HTTP handlers.
 type Middleware struct {
 	Datastore     Datastore
 	Secret        []byte
-	AccessTTL     time.Duration // Default: 3 minutes
-	RefreshTTL    time.Duration // Default: 7 days
-	PasswordRegex *regexp.Regexp // Default: min 8 chars, 1 uppercase, 1 lowercase, 1 digit
-	Insecure      bool // Disable Secure flag on cookies (default: false = secure)
+	AccessTTL     time.Duration        // Default: 3 minutes
+	RefreshTTL    time.Duration        // Default: 7 days
+	PasswordRules []rules.PasswordRule // Default: min 8 chars, 1 uppercase, 1 lowercase, 1 digit
+	Insecure      bool                 // Disable Secure flag on cookies (default: false = secure)
 }
 
 func (m *Middleware) accessTTL() time.Duration {
@@ -46,15 +43,21 @@ func (m *Middleware) secureCookie() bool {
 	return !m.Insecure
 }
 
-func (m *Middleware) passwordRegex() *regexp.Regexp {
-	if m.PasswordRegex != nil {
-		return m.PasswordRegex
+func (m *Middleware) passwordRules() []rules.PasswordRule {
+	if len(m.PasswordRules) > 0 {
+		return m.PasswordRules
 	}
-	return defaultPasswordRegex
+	return rules.DefaultPasswordRules
 }
 
-func (m *Middleware) validatePassword(password string) bool {
-	return m.passwordRegex().MatchString(password)
+func (m *Middleware) validatePassword(password string) []string {
+	var violations []string
+	for _, rule := range m.passwordRules() {
+		if !rule.Validate(password) {
+			violations = append(violations, rule.String())
+		}
+	}
+	return violations
 }
 
 // Wrap wraps a handler to require authentication.
