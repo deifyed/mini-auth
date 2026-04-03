@@ -39,4 +39,7 @@ type Datastore interface {
 
 	// DeleteUserRefreshTokens removes all refresh tokens for a user (logout everywhere).
 	DeleteUserRefreshTokens(userID int64) error
+
+	// UpdatePassword verifies the old password and changes a user's password.
+	UpdatePassword(userID int64, oldPassword, newPassword string) error
 }

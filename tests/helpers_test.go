@@ -61,6 +61,7 @@ func newTestSetup(t *testing.T) *testSetup {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login", miniauth.Login(middleware))
 	mux.HandleFunc("POST /logout", miniauth.Logout(middleware))
+	mux.HandleFunc("POST /update-password", miniauth.UpdatePassword(middleware))
 	mux.Handle("GET /protected", middleware.Wrap(http.HandlerFunc(protectedHandler)))
 
 	server := httptest.NewServer(mux)

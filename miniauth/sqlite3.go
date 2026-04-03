@@ -217,3 +217,36 @@ func (s *Sqlite3) DeleteUserRefreshTokens(userID int64) error {
 	}
 	return nil
 }
+
+// UpdatePassword verifies the old password and updates to the new password.
+func (s *Sqlite3) UpdatePassword(userID int64, oldPassword, newPassword string) error {
+	var passwordHash string
+	err := s.db.QueryRow(
+		"SELECT password_hash FROM users WHERE id = ?",
+		userID,
+	).Scan(&passwordHash)
+
+	if err != nil {
+		return fmt.Errorf("querying user: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), preparePassword(oldPassword)); err != nil {
+		return ErrInvalidCredentials
+	}
+
+	hash, err := bcrypt.GenerateFromPassword(preparePassword(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hashing password: %w", err)
+	}
+
+	_, err = s.db.Exec(
+		"UPDATE users SET password_hash = ? WHERE id = ?",
+		string(hash),
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("updating password: %w", err)
+	}
+
+	return nil
+}

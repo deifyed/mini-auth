@@ -106,3 +106,52 @@ func Logout(m *Middleware) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 	}
 }
+
+// UpdatePassword returns a handler that changes a user's password.
+// Requires the old password for verification. On success, invalidates all
+// refresh tokens and clears authentication cookies, forcing re-login.
+func UpdatePassword(m *Middleware) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		user, err := m.authenticate(w, r)
+		if err != nil {
+			http.Error(w, "Not authenticated", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			OldPassword string `json:"old_password"`
+			NewPassword string `json:"new_password"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.OldPassword == "" || req.NewPassword == "" {
+			http.Error(w, "Old password and new password required", http.StatusBadRequest)
+			return
+		}
+
+		err = m.Datastore.UpdatePassword(user.ID, req.OldPassword, req.NewPassword)
+		if err == ErrInvalidCredentials {
+			http.Error(w, "Invalid old password", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			http.Error(w, "Failure updating password", http.StatusInternalServerError)
+			return
+		}
+
+		// Invalidate all refresh tokens and clear cookies to force re-login
+		m.Datastore.DeleteUserRefreshTokens(user.ID)
+		m.clearTokenCookies(w)
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
